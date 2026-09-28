@@ -174,7 +174,7 @@ export default function ParametersView({
               <ShieldCheck className="h-5 w-5 text-emerald-600" /> Suite de Tests Obligatoires du Métier
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Vérifie les 17 règles du cahier des charges : formules PDF, stocks négatifs, pas de double retrait, etc.
+              Vérifie les 21 règles du cahier des charges : formules PDF, éditeur de recettes, contrôles 100 kg, stocks négatifs, etc.
             </p>
           </div>
 
@@ -211,6 +211,79 @@ export default function ParametersView({
           </div>
         )}
       </div>
+
+      {/* SaaS Multi-Tenant Isolation Tests */}
+      <SaasTestCard />
+    </div>
+  );
+}
+
+function SaasTestCard() {
+  const [running, setRunning] = useState(false);
+  const [saasResults, setSaasResults] = useState<{ name: string; passed: boolean; message?: string }[] | null>(null);
+
+  const handleRunSaasTests = async () => {
+    setRunning(true);
+    try {
+      const res = await fetch('/api/tests/saas-isolation', { method: 'POST' });
+      const data = await res.json();
+      setSaasResults(data.results || []);
+    } catch (e) {
+      console.error('Error running SaaS tests:', e);
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-6 shadow-xs space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+        <div>
+          <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5 text-purple-600" /> Tests d'Isolation SaaS Multi-Organisations (PostgreSQL)
+          </h3>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Exécute les 15 tests d'étanchéité stricte : Utilisateur A vs B, Org A vs B, Fermes A vs B, RBAC et absence de fuite inter-comptes.
+          </p>
+        </div>
+
+        <button
+          onClick={handleRunSaasTests}
+          disabled={running}
+          className="px-4 py-2 bg-purple-700 hover:bg-purple-800 text-white font-bold rounded-xl text-xs transition-colors cursor-pointer min-h-[44px] flex items-center gap-1.5"
+        >
+          {running ? 'Exécution des tests...' : 'Vérifier l\'Isolation SaaS'}
+        </button>
+      </div>
+
+      {saasResults && (
+        <div className="space-y-2 pt-2">
+          <div className="flex items-center gap-2 text-xs font-bold font-mono">
+            <span className={`px-2.5 py-1 rounded-full border ${
+              saasResults.every(r => r.passed) 
+                ? 'text-emerald-700 bg-emerald-50 border-emerald-200' 
+                : 'text-rose-700 bg-rose-50 border-rose-200'
+            }`}>
+              Résultat : {saasResults.filter(r => r.passed).length} / {saasResults.length} tests validés
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs font-mono">
+            {saasResults.map((r, i) => (
+              <div key={i} className={`p-2.5 rounded-xl border flex justify-between items-center ${
+                r.passed ? 'bg-emerald-50/60 border-emerald-200 text-emerald-900' : 'bg-rose-50 border-rose-200 text-rose-900'
+              }`}>
+                <span className="font-medium text-[11px] truncate mr-2">{r.name}</span>
+                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                  r.passed ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
+                }`}>
+                  {r.passed ? 'OK' : 'FAIL'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

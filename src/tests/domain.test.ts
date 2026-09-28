@@ -333,8 +333,8 @@ export function runDomainVerificationTests(): { passed: boolean; results: { test
   return { passed: allPassed, results };
 }
 
-// Auto-run if executed directly
-if (typeof process !== 'undefined' && process.argv[1]?.includes('domain.test')) {
+// Auto-run if executed directly via Node.js / tsx CLI
+if (typeof window === 'undefined' && typeof process !== 'undefined' && Array.isArray(process?.argv) && typeof process.argv[1] === 'string' && process.argv[1].includes('domain.test')) {
   const { passed, results } = runDomainVerificationTests();
   console.log(`\n=== RÉSULTATS DES TESTS DE DOMAINE MÉTIER (${results.length} tests) ===`);
   results.forEach(r => {
@@ -342,5 +342,5 @@ if (typeof process !== 'undefined' && process.argv[1]?.includes('domain.test')) 
     console.log(`${symbol} [${r.status}] ${r.test}${r.details ? ' -> ' + r.details : ''}`);
   });
   console.log(`\nConclusion: ${passed ? 'TOUS LES TESTS ONT RÉUSSI' : 'CERTAINS TESTS ONT ÉCHOUÉ'}\n`);
-  if (!passed) process.exit(1);
+  if (!passed && typeof process.exit === 'function') process.exit(1);
 }

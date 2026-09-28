@@ -32,6 +32,10 @@ import WeighingsView from './components/WeighingsView';
 import SalesExpensesView from './components/SalesExpensesView';
 import ReportsView from './components/ReportsView';
 import ParametersView from './components/ParametersView';
+import SaaSHeader from './components/SaaSHeader';
+import AuthModal from './components/AuthModal';
+import CreateOrgModal from './components/CreateOrgModal';
+import { api, AuthUser, UserOrganization, FarmRecord } from './services/api';
 
 // Helper to generate realistic past dates without UTC shift
 const getPastDateStr = (daysAgo: number): string => {
@@ -155,10 +159,105 @@ export default function App() {
     return localStorage.getItem('belier_last_backup_date') || undefined;
   });
 
-  // Local storage synchronization
+  // --- SAAS STATE ---
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => api.getUser());
+  const [organizations, setOrganizations] = useState<UserOrganization[]>([]);
+  const [activeOrgId, setActiveOrgId] = useState<string | null>(() => api.getActiveOrgId());
+  const [farms, setFarms] = useState<FarmRecord[]>([]);
+  const [activeFarmId, setActiveFarmId] = useState<string | null>(null);
+  const [saasBatches, setSaasBatches] = useState<PoultryBatch[]>([]);
+  const [isSaasLoading, setIsSaasLoading] = useState(false);
+  const [saasNotice, setSaasNotice] = useState<string | null>(null);
+
+  // Modals
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showCreateOrgModal, setShowCreateOrgModal] = useState(false);
+
+  const activeFarm = farms.find(f => f.id === activeFarmId) || farms[0] || null;
+  const isSaasMode = Boolean(currentUser && activeOrgId);
+  const displayedBatches = isSaasMode ? saasBatches : batches;
+
+  // Load data from SaaS API for active organization
+  const loadSaasData = async (orgId: string) => {
+    setIsSaasLoading(true);
+    setSaasNotice(null);
+    try {
+      const [farmsRes, batchesRes] = await Promise.all([
+        api.getFarms(orgId),
+        api.getBatches(orgId)
+      ]);
+
+      if (farmsRes.data?.farms) {
+        setFarms(farmsRes.data.farms);
+        if (farmsRes.data.farms.length > 0) {
+          setActiveFarmId(farmsRes.data.farms[0].id);
+        }
+      }
+
+      if (batchesRes.data?.batches) {
+        setSaasBatches(batchesRes.data.batches);
+        if (batchesRes.data.batches.length > 0) {
+          setSelectedBatchId(batchesRes.data.batches[0].id);
+        } else {
+          setSelectedBatchId(null);
+        }
+      }
+    } catch (err: any) {
+      console.error('[SAAS_LOAD_ERROR]', err);
+    } finally {
+      setIsSaasLoading(false);
+    }
+  };
+
+  // Initialize SaaS user on load
   useEffect(() => {
-    localStorage.setItem('belier_batches_v2', JSON.stringify(batches));
-  }, [batches]);
+    const unsub = api.onAuthChange(user => {
+      setCurrentUser(user);
+    });
+
+    if (api.getToken()) {
+      api.getMe().then(res => {
+        if (res.data) {
+          setCurrentUser(res.data.user);
+          setOrganizations(res.data.organizations || []);
+          if (res.data.organizations && res.data.organizations.length > 0) {
+            const orgToSet = activeOrgId && res.data.organizations.some(o => o.id === activeOrgId)
+              ? activeOrgId
+              : res.data.organizations[0].id;
+            setActiveOrgId(orgToSet);
+            api.setActiveOrgId(orgToSet);
+            loadSaasData(orgToSet);
+          }
+        }
+      });
+    }
+
+    return () => unsub();
+  }, []);
+
+  const handleSelectOrg = (orgId: string) => {
+    setActiveOrgId(orgId);
+    api.setActiveOrgId(orgId);
+    setSaasBatches([]); // Purge memory cache to prevent cross-leakage
+    loadSaasData(orgId);
+  };
+
+  const handleLogout = async () => {
+    await api.logout();
+    setCurrentUser(null);
+    setOrganizations([]);
+    setActiveOrgId(null);
+    setFarms([]);
+    setSaasBatches([]);
+    // Local batches remain intact
+  };
+
+  // Local storage synchronization (Mode Local Uniquement)
+  useEffect(() => {
+    if (!isSaasMode) {
+      localStorage.setItem('belier_batches_v2', JSON.stringify(batches));
+    }
+  }, [batches, isSaasMode]);
 
   useEffect(() => {
     localStorage.setItem('belier_stock_items_v2', JSON.stringify(stockItems));
@@ -193,24 +292,79 @@ export default function App() {
   }, [ingredientsLibrary]);
 
   // Mutations
-  const handleAddBatch = (newB: PoultryBatch) => {
-    setBatches(prev => [newB, ...prev]);
+  const handleAddBatch = async (newB: PoultryBatch) => {
+    if (isSaasMode && activeOrgId) {
+      try {
+        const payload = {
+          ...newB,
+          farmId: activeFarmId || farms[0]?.id
+        };
+        const res = await api.createBatch(activeOrgId, payload);
+        if (res.data?.batch) {
+          setSaasBatches(prev => [res.data!.batch, ...prev]);
+          setSelectedBatchId(res.data.batch.id);
+        } else if (res.error) {
+          console.error(`Erreur création lot SaaS: ${res.error}`);
+        }
+      } catch (err) {
+        console.error('Failed to create SaaS batch:', err);
+      }
+    } else {
+      setBatches(prev => [newB, ...prev]);
+      setSelectedBatchId(newB.id);
+    }
   };
 
-  const handleUpdateBatch = (updatedB: PoultryBatch) => {
-    setBatches(prev => prev.map(b => b.id === updatedB.id ? updatedB : b));
+  const handleUpdateBatch = async (updatedB: PoultryBatch) => {
+    if (isSaasMode && activeOrgId) {
+      setSaasBatches(prev => prev.map(b => b.id === updatedB.id ? updatedB : b));
+      try {
+        await api.updateBatch(activeOrgId, updatedB.id, updatedB);
+      } catch (err) {
+        console.error('Failed to update SaaS batch:', err);
+      }
+    } else {
+      setBatches(prev => prev.map(b => b.id === updatedB.id ? updatedB : b));
+    }
   };
 
-  const handleSoftDeleteBatch = (id: string) => {
-    setBatches(prev => prev.map(b => b.id === id ? { ...b, deletedAt: new Date().toISOString() } : b));
+  const handleSoftDeleteBatch = async (id: string) => {
+    if (isSaasMode && activeOrgId) {
+      setSaasBatches(prev => prev.map(b => b.id === id ? { ...b, deletedAt: new Date().toISOString() } : b));
+      try {
+        await api.updateBatch(activeOrgId, id, { status: 'archived', deletedAt: new Date().toISOString() });
+      } catch (err) {
+        console.error('Failed to soft delete SaaS batch:', err);
+      }
+    } else {
+      setBatches(prev => prev.map(b => b.id === id ? { ...b, deletedAt: new Date().toISOString() } : b));
+    }
   };
 
-  const handleRestoreBatch = (id: string) => {
-    setBatches(prev => prev.map(b => b.id === id ? { ...b, deletedAt: undefined } : b));
+  const handleRestoreBatch = async (id: string) => {
+    if (isSaasMode && activeOrgId) {
+      setSaasBatches(prev => prev.map(b => b.id === id ? { ...b, deletedAt: undefined } : b));
+      try {
+        await api.updateBatch(activeOrgId, id, { status: 'active', deletedAt: null });
+      } catch (err) {
+        console.error('Failed to restore SaaS batch:', err);
+      }
+    } else {
+      setBatches(prev => prev.map(b => b.id === id ? { ...b, deletedAt: undefined } : b));
+    }
   };
 
-  const handlePermanentDeleteBatch = (id: string) => {
-    setBatches(prev => prev.filter(b => b.id !== id));
+  const handlePermanentDeleteBatch = async (id: string) => {
+    if (isSaasMode && activeOrgId) {
+      setSaasBatches(prev => prev.filter(b => b.id !== id));
+      try {
+        await api.deleteBatch(activeOrgId, id);
+      } catch (err) {
+        console.error('Failed to permanent delete SaaS batch:', err);
+      }
+    } else {
+      setBatches(prev => prev.filter(b => b.id !== id));
+    }
   };
 
   const handleAddStockMovement = (mov: StockMovement) => {
@@ -267,6 +421,21 @@ export default function App() {
 
   return (
     <div id="main-application-viewport" className="min-h-screen bg-[#f8fafc] text-slate-800 flex flex-col font-sans pb-16 lg:pb-0">
+      {/* SaaS Multi-Tenant Organization Header */}
+      <SaaSHeader
+        currentUser={currentUser}
+        organizations={organizations}
+        activeOrgId={activeOrgId}
+        activeFarm={activeFarm}
+        farms={farms}
+        onSelectOrg={handleSelectOrg}
+        onSelectFarm={setActiveFarmId}
+        onCreateOrgClick={() => setShowCreateOrgModal(true)}
+        onOpenAuth={() => setShowAuthModal(true)}
+        onLogout={handleLogout}
+        onOpenMailbox={() => setShowAuthModal(true)}
+      />
+
       {/* 10-Space Top and Mobile Navigation */}
       <Navigation
         currentSpace={currentSpace}
@@ -275,11 +444,19 @@ export default function App() {
         lowStockCount={lowStockCount}
       />
 
+      {/* SaaS Loading / Sync Banner */}
+      {isSaasLoading && (
+        <div className="bg-emerald-50 border-b border-emerald-200 text-emerald-800 text-xs px-4 py-1.5 flex items-center justify-center gap-2 font-mono">
+          <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span>
+          <span>Synchronisation des lots PostgreSQL en cours...</span>
+        </div>
+      )}
+
       {/* Main Workspace Viewport */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-6">
         {currentSpace === 'dashboard' && (
           <DashboardView
-            batches={batches}
+            batches={displayedBatches}
             stockItems={stockItems}
             healthProtocols={healthProtocols}
             technicalParams={technicalParams}
@@ -296,7 +473,7 @@ export default function App() {
 
         {currentSpace === 'batches' && (
           <BatchesView
-            batches={batches}
+            batches={displayedBatches}
             onAddBatch={handleAddBatch}
             onUpdateBatch={handleUpdateBatch}
             onSoftDeleteBatch={handleSoftDeleteBatch}
@@ -312,7 +489,7 @@ export default function App() {
 
         {currentSpace === 'daily_log' && (
           <DailyLogView
-            batches={batches}
+            batches={displayedBatches}
             onUpdateBatch={handleUpdateBatch}
             currentDateStr={currentDateStr}
             selectedBatchId={selectedBatchId}
@@ -329,7 +506,7 @@ export default function App() {
             manufacturingLogs={manufacturingLogs}
             onAddManufacturingLog={handleAddManufacturingLog}
             currentDateStr={currentDateStr}
-            batches={batches}
+            batches={displayedBatches}
             onUpdateBatch={handleUpdateBatch}
             ingredientsLibrary={ingredientsLibrary}
             onUpdateIngredientsLibrary={setIngredientsLibrary}
@@ -348,7 +525,7 @@ export default function App() {
 
         {currentSpace === 'health' && (
           <HealthView
-            batches={batches}
+            batches={displayedBatches}
             onUpdateBatch={handleUpdateBatch}
             healthProtocols={healthProtocols}
             onUpdateHealthProtocols={setHealthProtocols}
@@ -360,7 +537,7 @@ export default function App() {
 
         {currentSpace === 'weighings' && (
           <WeighingsView
-            batches={batches}
+            batches={displayedBatches}
             onUpdateBatch={handleUpdateBatch}
             currentDateStr={currentDateStr}
             selectedBatchId={selectedBatchId}
@@ -370,7 +547,7 @@ export default function App() {
 
         {currentSpace === 'sales_expenses' && (
           <SalesExpensesView
-            batches={batches}
+            batches={displayedBatches}
             onUpdateBatch={handleUpdateBatch}
             cuttingYields={cuttingYields}
             currentDateStr={currentDateStr}
@@ -381,7 +558,7 @@ export default function App() {
 
         {currentSpace === 'reports' && (
           <ReportsView
-            batches={batches}
+            batches={displayedBatches}
             stockItems={stockItems}
             manufacturingLogs={manufacturingLogs}
             formulas={formulas}
@@ -403,6 +580,29 @@ export default function App() {
           />
         )}
       </main>
+
+      {/* SaaS Auth Modal */}
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onSuccess={(user, orgs) => {
+          setCurrentUser(user);
+          setOrganizations(orgs);
+          if (orgs.length > 0) {
+            handleSelectOrg(orgs[0].id);
+          }
+        }}
+      />
+
+      {/* Create Organization Modal */}
+      <CreateOrgModal
+        isOpen={showCreateOrgModal}
+        onClose={() => setShowCreateOrgModal(false)}
+        onCreated={(newOrg) => {
+          setOrganizations(prev => [newOrg, ...prev]);
+          handleSelectOrg(newOrg.id);
+        }}
+      />
     </div>
   );
 }
