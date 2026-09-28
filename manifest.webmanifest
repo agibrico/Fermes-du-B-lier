@@ -1,0 +1,18 @@
+{
+  "name": "Fermes du Bélier - Plan 35 Jours",
+  "short_name": "Fermes Bélier",
+  "description": "Application technico-économique de gestion de poulailler pour le cycle de 35 jours.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#059669",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

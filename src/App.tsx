@@ -1,172 +1,408 @@
 import React, { useState, useEffect } from 'react';
-import { PoultryBatch, TechnicalParams, CuttingYield } from './types';
-import { TECHNICAL_PARAMS_DEFAULT, CUTTING_YIELDS_STANDARD } from './data';
-import WelcomeScreen from './components/WelcomeScreen';
-import FarmerDashboard from './components/FarmerDashboard';
-import AdminDashboard from './components/AdminDashboard';
+import { 
+  PoultryBatch, 
+  StockItem, 
+  StockMovement, 
+  FeedFormula, 
+  FeedManufacturingLog, 
+  HealthProtocolItem, 
+  TechnicalParams, 
+  CuttingYield,
+  AppBackupData,
+  IngredientDefinition
+} from './types';
+import { 
+  TECHNICAL_PARAMS_DEFAULT, 
+  CUTTING_YIELDS_STANDARD, 
+  FEED_FORMULAS_PDF, 
+  STOCK_ITEMS_DEFAULT, 
+  HEALTH_PROTOCOLS_DEFAULT,
+  FEED_PROGRAM_STANDARD,
+  INGREDIENTS_LIBRARY_DEFAULT
+} from './data';
+import { getTodayDateStr, formatLocalDate } from './utils/dateUtils';
+import Navigation, { AppSpace } from './components/Navigation';
+import DashboardView from './components/DashboardView';
+import BatchesView from './components/BatchesView';
+import DailyLogView from './components/DailyLogView';
+import FeedingView from './components/FeedingView';
+import StocksView from './components/StocksView';
+import HealthView from './components/HealthView';
+import WeighingsView from './components/WeighingsView';
+import SalesExpensesView from './components/SalesExpensesView';
+import ReportsView from './components/ReportsView';
+import ParametersView from './components/ParametersView';
 
-// Helper to calculate date relative to today
+// Helper to generate realistic past dates without UTC shift
 const getPastDateStr = (daysAgo: number): string => {
   const d = new Date();
   d.setDate(d.getDate() - daysAgo);
-  return d.toISOString().split('T')[0];
+  return formatLocalDate(d);
 };
 
-// Initial realistic seed data for a stellar, plug-and-play experience
-const SEED_BATCHES: PoultryBatch[] = [
+// Seed demo batches
+const createSeedBatches = (): PoultryBatch[] => [
   {
-    id: 'batch_seed_active',
+    id: 'batch_alpha_seed',
     name: 'Lot Alpha - 150 Sujets (Chrono)',
     initialSize: 150,
-    startDate: getPastDateStr(14), // Started 14 days ago, so today is Day 15 (first day of Croissance)
+    startDate: getPastDateStr(14), // Jour 15 aujourd'hui (Croissance)
+    receptionAgeDays: 1,
+    strain: 'Cobb 500',
+    hatcheryName: 'Couvoir Ivoire Pro',
+    feedProgramId: FEED_PROGRAM_STANDARD.id,
+    hasAdoptedNewProgram: true,
+    targetWeightMinGrams: 2100,
+    targetWeightMaxGrams: 2200,
+    targetAgeDays: 35,
     mortalities: [
-      { date: getPastDateStr(12), count: 2 },
-      { date: getPastDateStr(6), count: 1 }
+      { id: 'm1', date: getPastDateStr(12), count: 2, cause: 'Faiblesse transport' },
+      { id: 'm2', date: getPastDateStr(6), count: 1, cause: 'Asphyxie' }
     ],
     weights: [
-      { day: 1, weight: 42, date: getPastDateStr(14) },
-      { day: 10, weight: 315, date: getPastDateStr(4) },
-      { day: 14, weight: 565, date: getPastDateStr(0) }
+      { id: 'w1', day: 1, weight: 42, date: getPastDateStr(14), ageDaysCalculated: 1 },
+      { id: 'w2', day: 7, weight: 195, date: getPastDateStr(8), birdsWeighedCount: 15, ageDaysCalculated: 7 },
+      { id: 'w3', day: 14, weight: 520, date: getPastDateStr(1), birdsWeighedCount: 20, ageDaysCalculated: 14 }
     ],
-    feedPreparations: [
-      { id: 'feed_s1', date: getPastDateStr(14), phase: 'Prédémarrage', quantityKg: 45, costFcfa: 18000 },
-      { id: 'feed_s2', date: getPastDateStr(4), phase: 'Démarrage', quantityKg: 45, costFcfa: 12825 }
+    flockMovements: [],
+    dailyLogs: [
+      { id: 'dl1', batchId: 'batch_alpha_seed', date: getPastDateStr(1), ageDays: 14, mortalityCount: 0, feedDistributedKg: 18.5, feedDistributedType: 'Aliment Croissance', averageWeightGrams: 520, birdsWeighedCount: 20, healthTreatmentsGiven: 'Vaccin Gumboro réalisé', operator: 'Éleveur en chef' }
     ],
-    completedSanitaryTasks: [
-      { day: 1, completed: true, completedAt: getPastDateStr(14) },
-      { day: 4, completed: true, completedAt: getPastDateStr(11) },
-      { day: 6, completed: true, completedAt: getPastDateStr(9) },
-      { day: 11, completed: true, completedAt: getPastDateStr(4) },
-      { day: 14, completed: true, completedAt: getPastDateStr(1) }
+    sales: [],
+    expenses: [
+      { id: 'e1', date: getPastDateStr(14), category: 'Poussins', description: '150 poussins Cobb 500', amountFcfa: 150 * 630 },
+      { id: 'e2', date: getPastDateStr(14), category: 'Litière', description: '3 sacs de copeaux dépoussiérés', amountFcfa: 6000 }
+    ],
+    healthLogs: [
+      { id: 'hl1', protocolItemId: 'prot_hb1', batchId: 'batch_alpha_seed', category: 'vaccin', productName: 'Vaccin HB1 / H120', lotManufacturer: 'HB-0926', date: getPastDateStr(14), effectiveAgeDays: 1, birdsTreatedCount: 150, dosesOrQuantityUsed: 150, unit: 'doses', operator: 'Vétérinaire', conservationConditionsChecked: true, withdrawalPeriodDays: 0, withdrawalEndDate: getPastDateStr(14), isWithdrawalActive: false, status: 'Réalisé' },
+      { id: 'hl2', protocolItemId: 'prot_gumboro_1', batchId: 'batch_alpha_seed', category: 'vaccin', productName: 'Vaccin Gumboro Intermédiaire', lotManufacturer: 'GUM-44B', date: getPastDateStr(1), effectiveAgeDays: 14, birdsTreatedCount: 147, dosesOrQuantityUsed: 150, unit: 'doses', operator: 'Éleveur', conservationConditionsChecked: true, withdrawalPeriodDays: 0, withdrawalEndDate: getPastDateStr(1), isWithdrawalActive: false, status: 'Réalisé' }
     ],
     status: 'active'
-  },
-  {
-    id: 'batch_seed_completed',
-    name: 'Lot Bêta - Rétrospective 200 têtes',
-    initialSize: 200,
-    startDate: getPastDateStr(45),
-    mortalities: [
-      { date: getPastDateStr(43), count: 3 },
-      { date: getPastDateStr(35), count: 1 },
-      { date: getPastDateStr(20), count: 2 }
-    ],
-    weights: [
-      { day: 1, weight: 40, date: getPastDateStr(45) },
-      { day: 10, weight: 305, date: getPastDateStr(35) },
-      { day: 14, weight: 550, date: getPastDateStr(31) },
-      { day: 28, weight: 1510, date: getPastDateStr(17) },
-      { day: 35, weight: 2410, date: getPastDateStr(10) }
-    ],
-    feedPreparations: [
-      { id: 'feed_s3', date: getPastDateStr(45), phase: 'Prédémarrage', quantityKg: 90, costFcfa: 36000 },
-      { id: 'feed_s4', date: getPastDateStr(35), phase: 'Démarrage', quantityKg: 90, costFcfa: 25650 },
-      { id: 'feed_s5', date: getPastDateStr(31), phase: 'Croissance', quantityKg: 320, costFcfa: 91200 },
-      { id: 'feed_s6', date: getPastDateStr(17), phase: 'Finition', quantityKg: 200, costFcfa: 57000 }
-    ],
-    completedSanitaryTasks: [
-      { day: 1, completed: true, completedAt: getPastDateStr(45) },
-      { day: 4, completed: true, completedAt: getPastDateStr(42) },
-      { day: 6, completed: true, completedAt: getPastDateStr(40) },
-      { day: 11, completed: true, completedAt: getPastDateStr(35) },
-      { day: 14, completed: true, completedAt: getPastDateStr(32) },
-      { day: 17, completed: true, completedAt: getPastDateStr(29) },
-      { day: 20, completed: true, completedAt: getPastDateStr(26) },
-      { day: 21, completed: true, completedAt: getPastDateStr(25) },
-      { day: 28, completed: true, completedAt: getPastDateStr(18) }
-    ],
-    status: 'completed',
-    completionDate: getPastDateStr(10),
-    soldRevenue: 816352 // 194 remaining birds * simulated carcass cut value
   }
 ];
 
 export default function App() {
-  // Current active workspace role selection
-  const [activeRole, setActiveRole] = useState<'admin' | 'farmer' | null>(null);
+  const [currentSpace, setCurrentSpace] = useState<AppSpace>('dashboard');
+  const [selectedBatchId, setSelectedBatchId] = useState<string | null>('batch_alpha_seed');
 
-  // Core global states, persisted via Local Storage
+  // Midnight date ticker
+  const [currentDateStr, setCurrentDateStr] = useState<string>(getTodayDateStr());
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const today = getTodayDateStr();
+      if (today !== currentDateStr) {
+        setCurrentDateStr(today);
+      }
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [currentDateStr]);
+
+  // Persisted state: Batches
   const [batches, setBatches] = useState<PoultryBatch[]>(() => {
-    const saved = localStorage.getItem('belier_poultry_batches');
-    return saved ? JSON.parse(saved) : SEED_BATCHES;
+    const saved = localStorage.getItem('belier_batches_v2');
+    return saved ? JSON.parse(saved) : createSeedBatches();
   });
 
+  // Persisted state: Stock Items
+  const [stockItems, setStockItems] = useState<StockItem[]>(() => {
+    const saved = localStorage.getItem('belier_stock_items_v2');
+    return saved ? JSON.parse(saved) : STOCK_ITEMS_DEFAULT;
+  });
+
+  // Persisted state: Stock Movements
+  const [stockMovements, setStockMovements] = useState<StockMovement[]>(() => {
+    const saved = localStorage.getItem('belier_stock_movements_v2');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  // Persisted state: Feed Formulas
+  const [formulas, setFormulas] = useState<FeedFormula[]>(() => {
+    const saved = localStorage.getItem('belier_formulas_v2');
+    return saved ? JSON.parse(saved) : FEED_FORMULAS_PDF;
+  });
+
+  // Persisted state: Manufacturing Logs
+  const [manufacturingLogs, setManufacturingLogs] = useState<FeedManufacturingLog[]>(() => {
+    const saved = localStorage.getItem('belier_mfg_logs_v2');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  // Persisted state: Health Protocols
+  const [healthProtocols, setHealthProtocols] = useState<HealthProtocolItem[]>(() => {
+    const saved = localStorage.getItem('belier_health_protocols_v2');
+    return saved ? JSON.parse(saved) : HEALTH_PROTOCOLS_DEFAULT;
+  });
+
+  // Persisted state: Technical Params
   const [technicalParams, setTechnicalParams] = useState<TechnicalParams>(() => {
-    const saved = localStorage.getItem('belier_technical_params');
+    const saved = localStorage.getItem('belier_technical_params_v2');
     return saved ? JSON.parse(saved) : TECHNICAL_PARAMS_DEFAULT;
   });
 
+  // Persisted state: Cutting Yields
   const [cuttingYields, setCuttingYields] = useState<CuttingYield[]>(() => {
-    const saved = localStorage.getItem('belier_cutting_yields');
+    const saved = localStorage.getItem('belier_cutting_yields_v2');
     return saved ? JSON.parse(saved) : CUTTING_YIELDS_STANDARD;
   });
 
-  // Sync to local storage on changes
+  // Persisted state: Ingredients Library
+  const [ingredientsLibrary, setIngredientsLibrary] = useState<IngredientDefinition[]>(() => {
+    const saved = localStorage.getItem('belier_ingredients_lib_v1');
+    return saved ? JSON.parse(saved) : INGREDIENTS_LIBRARY_DEFAULT;
+  });
+
+  const [lastBackupDate, setLastBackupDate] = useState<string | undefined>(() => {
+    return localStorage.getItem('belier_last_backup_date') || undefined;
+  });
+
+  // Local storage synchronization
   useEffect(() => {
-    localStorage.setItem('belier_poultry_batches', JSON.stringify(batches));
+    localStorage.setItem('belier_batches_v2', JSON.stringify(batches));
   }, [batches]);
 
   useEffect(() => {
-    localStorage.setItem('belier_technical_params', JSON.stringify(technicalParams));
+    localStorage.setItem('belier_stock_items_v2', JSON.stringify(stockItems));
+  }, [stockItems]);
+
+  useEffect(() => {
+    localStorage.setItem('belier_stock_movements_v2', JSON.stringify(stockMovements));
+  }, [stockMovements]);
+
+  useEffect(() => {
+    localStorage.setItem('belier_formulas_v2', JSON.stringify(formulas));
+  }, [formulas]);
+
+  useEffect(() => {
+    localStorage.setItem('belier_mfg_logs_v2', JSON.stringify(manufacturingLogs));
+  }, [manufacturingLogs]);
+
+  useEffect(() => {
+    localStorage.setItem('belier_health_protocols_v2', JSON.stringify(healthProtocols));
+  }, [healthProtocols]);
+
+  useEffect(() => {
+    localStorage.setItem('belier_technical_params_v2', JSON.stringify(technicalParams));
   }, [technicalParams]);
 
   useEffect(() => {
-    localStorage.setItem('belier_cutting_yields', JSON.stringify(cuttingYields));
+    localStorage.setItem('belier_cutting_yields_v2', JSON.stringify(cuttingYields));
   }, [cuttingYields]);
 
-  // Handle batch mutations
-  const handleAddBatch = (newBatch: PoultryBatch) => {
-    setBatches((prev) => [newBatch, ...prev]);
+  useEffect(() => {
+    localStorage.setItem('belier_ingredients_lib_v1', JSON.stringify(ingredientsLibrary));
+  }, [ingredientsLibrary]);
+
+  // Mutations
+  const handleAddBatch = (newB: PoultryBatch) => {
+    setBatches(prev => [newB, ...prev]);
   };
 
-  const handleUpdateBatch = (updatedBatch: PoultryBatch) => {
-    setBatches((prev) => prev.map((b) => (b.id === updatedBatch.id ? updatedBatch : b)));
+  const handleUpdateBatch = (updatedB: PoultryBatch) => {
+    setBatches(prev => prev.map(b => b.id === updatedB.id ? updatedB : b));
   };
 
-  const handleDeleteBatch = (id: string) => {
-    setBatches((prev) => prev.filter((b) => b.id !== id));
+  const handleSoftDeleteBatch = (id: string) => {
+    setBatches(prev => prev.map(b => b.id === id ? { ...b, deletedAt: new Date().toISOString() } : b));
   };
 
-  // Quick stats for Welcome Screen
-  const activeBatchCount = batches.filter((b) => b.status === 'active').length;
-  const totalBirdsUnderFollowUp = batches
-    .filter((b) => b.status === 'active')
-    .reduce((sum, b) => {
-      const mortalitiesCount = b.mortalities.reduce((s, m) => s + m.count, 0);
-      return sum + (b.initialSize - mortalitiesCount);
-    }, 0);
+  const handleRestoreBatch = (id: string) => {
+    setBatches(prev => prev.map(b => b.id === id ? { ...b, deletedAt: undefined } : b));
+  };
+
+  const handlePermanentDeleteBatch = (id: string) => {
+    setBatches(prev => prev.filter(b => b.id !== id));
+  };
+
+  const handleAddStockMovement = (mov: StockMovement) => {
+    setStockMovements(prev => [mov, ...prev]);
+  };
+
+  const handleAddManufacturingLog = (log: FeedManufacturingLog) => {
+    setManufacturingLogs(prev => [log, ...prev]);
+  };
+
+  // Reset empty farm
+  const handleResetEmptyFarm = () => {
+    setBatches([]);
+    setManufacturingLogs([]);
+    setStockMovements([]);
+    localStorage.removeItem('belier_batches_v2');
+    setSelectedBatchId(null);
+  };
+
+  // Reset certified demo data
+  const handleResetDemoData = () => {
+    setBatches(createSeedBatches());
+    setStockItems(STOCK_ITEMS_DEFAULT);
+    setFormulas(FEED_FORMULAS_PDF);
+    setHealthProtocols(HEALTH_PROTOCOLS_DEFAULT);
+    setTechnicalParams(TECHNICAL_PARAMS_DEFAULT);
+    setCuttingYields(CUTTING_YIELDS_STANDARD);
+    setSelectedBatchId('batch_alpha_seed');
+  };
+
+  // Import full backup
+  const handleImportBackup = (data: AppBackupData, mode: 'replace' | 'merge') => {
+    if (mode === 'replace') {
+      setBatches(data.batches || []);
+      if (data.stockItems && data.stockItems.length > 0) setStockItems(data.stockItems);
+      if (data.formulas && data.formulas.length > 0) setFormulas(data.formulas);
+      if (data.technicalParams) setTechnicalParams(data.technicalParams);
+      if (data.cuttingYields) setCuttingYields(data.cuttingYields);
+    } else {
+      // Merge batches
+      setBatches(prev => {
+        const existingIds = new Set(prev.map(b => b.id));
+        const toAdd = (data.batches || []).filter(b => !existingIds.has(b.id));
+        return [...prev, ...toAdd];
+      });
+    }
+    const now = new Date().toISOString();
+    setLastBackupDate(now);
+    localStorage.setItem('belier_last_backup_date', now);
+  };
+
+  // Alerts counts
+  const lowStockCount = stockItems.filter(s => s.quantityOnHand <= s.reorderAlertLevel).length;
 
   return (
-    <div id="main-application-viewport" className="min-h-screen bg-[#f8fafc] font-sans text-slate-800 antialiased">
-      {activeRole === null && (
-        <WelcomeScreen
-          onSelectRole={setActiveRole}
-          activeBatchCount={activeBatchCount}
-          totalBirds={totalBirdsUnderFollowUp}
-        />
-      )}
+    <div id="main-application-viewport" className="min-h-screen bg-[#f8fafc] text-slate-800 flex flex-col font-sans pb-16 lg:pb-0">
+      {/* 10-Space Top and Mobile Navigation */}
+      <Navigation
+        currentSpace={currentSpace}
+        onSelectSpace={setCurrentSpace}
+        currentDateStr={currentDateStr}
+        lowStockCount={lowStockCount}
+      />
 
-      {activeRole === 'farmer' && (
-        <FarmerDashboard
-          batches={batches}
-          onAddBatch={handleAddBatch}
-          onUpdateBatch={handleUpdateBatch}
-          onDeleteBatch={handleDeleteBatch}
-          onBack={() => setActiveRole(null)}
-          technicalParams={technicalParams}
-        />
-      )}
+      {/* Main Workspace Viewport */}
+      <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-6">
+        {currentSpace === 'dashboard' && (
+          <DashboardView
+            batches={batches}
+            stockItems={stockItems}
+            healthProtocols={healthProtocols}
+            technicalParams={technicalParams}
+            cuttingYields={cuttingYields}
+            currentDateStr={currentDateStr}
+            onNavigate={setCurrentSpace}
+            onSelectBatch={(id) => {
+              setSelectedBatchId(id);
+              setCurrentSpace('batches');
+            }}
+            lastBackupDate={lastBackupDate}
+          />
+        )}
 
-      {activeRole === 'admin' && (
-        <AdminDashboard
-          batches={batches}
-          technicalParams={technicalParams}
-          onUpdateTechnicalParams={setTechnicalParams}
-          cuttingYields={cuttingYields}
-          onUpdateCuttingYields={setCuttingYields}
-          onBack={() => setActiveRole(null)}
-        />
-      )}
+        {currentSpace === 'batches' && (
+          <BatchesView
+            batches={batches}
+            onAddBatch={handleAddBatch}
+            onUpdateBatch={handleUpdateBatch}
+            onSoftDeleteBatch={handleSoftDeleteBatch}
+            onRestoreBatch={handleRestoreBatch}
+            onPermanentDeleteBatch={handlePermanentDeleteBatch}
+            technicalParams={technicalParams}
+            cuttingYields={cuttingYields}
+            currentDateStr={currentDateStr}
+            selectedBatchId={selectedBatchId}
+            onSelectBatchId={setSelectedBatchId}
+          />
+        )}
+
+        {currentSpace === 'daily_log' && (
+          <DailyLogView
+            batches={batches}
+            onUpdateBatch={handleUpdateBatch}
+            currentDateStr={currentDateStr}
+            selectedBatchId={selectedBatchId}
+            onSelectBatchId={setSelectedBatchId}
+          />
+        )}
+
+        {currentSpace === 'feeding' && (
+          <FeedingView
+            formulas={formulas}
+            onUpdateFormulas={setFormulas}
+            stockItems={stockItems}
+            onUpdateStockItems={setStockItems}
+            manufacturingLogs={manufacturingLogs}
+            onAddManufacturingLog={handleAddManufacturingLog}
+            currentDateStr={currentDateStr}
+            batches={batches}
+            onUpdateBatch={handleUpdateBatch}
+            ingredientsLibrary={ingredientsLibrary}
+            onUpdateIngredientsLibrary={setIngredientsLibrary}
+          />
+        )}
+
+        {currentSpace === 'stocks' && (
+          <StocksView
+            stockItems={stockItems}
+            onUpdateStockItems={setStockItems}
+            stockMovements={stockMovements}
+            onAddStockMovement={handleAddStockMovement}
+            currentDateStr={currentDateStr}
+          />
+        )}
+
+        {currentSpace === 'health' && (
+          <HealthView
+            batches={batches}
+            onUpdateBatch={handleUpdateBatch}
+            healthProtocols={healthProtocols}
+            onUpdateHealthProtocols={setHealthProtocols}
+            currentDateStr={currentDateStr}
+            selectedBatchId={selectedBatchId}
+            onSelectBatchId={setSelectedBatchId}
+          />
+        )}
+
+        {currentSpace === 'weighings' && (
+          <WeighingsView
+            batches={batches}
+            onUpdateBatch={handleUpdateBatch}
+            currentDateStr={currentDateStr}
+            selectedBatchId={selectedBatchId}
+            onSelectBatchId={setSelectedBatchId}
+          />
+        )}
+
+        {currentSpace === 'sales_expenses' && (
+          <SalesExpensesView
+            batches={batches}
+            onUpdateBatch={handleUpdateBatch}
+            cuttingYields={cuttingYields}
+            currentDateStr={currentDateStr}
+            selectedBatchId={selectedBatchId}
+            onSelectBatchId={setSelectedBatchId}
+          />
+        )}
+
+        {currentSpace === 'reports' && (
+          <ReportsView
+            batches={batches}
+            stockItems={stockItems}
+            manufacturingLogs={manufacturingLogs}
+            formulas={formulas}
+            technicalParams={technicalParams}
+            cuttingYields={cuttingYields}
+            onImportBackup={handleImportBackup}
+            onResetEmptyFarm={handleResetEmptyFarm}
+            onResetDemoData={handleResetDemoData}
+            currentDateStr={currentDateStr}
+          />
+        )}
+
+        {currentSpace === 'parameters' && (
+          <ParametersView
+            technicalParams={technicalParams}
+            onUpdateTechnicalParams={setTechnicalParams}
+            cuttingYields={cuttingYields}
+            onUpdateCuttingYields={setCuttingYields}
+          />
+        )}
+      </main>
     </div>
   );
 }
