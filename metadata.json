@@ -1,0 +1,6 @@
+{
+  "name": "Fermes du Bélier - Plan 35 Jours",
+  "description": "Application technico-économique de gestion de poulailler pour le cycle de 35 jours avec espaces Administrateur et Fermier.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
